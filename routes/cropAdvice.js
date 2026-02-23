@@ -11,7 +11,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  * Generate crop disease advice from disease detection (Text/JSON input)
  * Used by LLMAdvicePage.jsx
  */
-router.post('/crop-advice', async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { crop, disease, severity, confidence, language } = req.body;
 
@@ -61,7 +61,7 @@ router.post('/crop-advice', async (req, res) => {
  * Generate batch crop disease advice for multiple inputs
  * Used by multi-image batch diagnosis
  */
-router.post('/crop-advice/batch', async (req, res) => {
+router.post('/batch', async (req, res) => {
   try {
     const { diseases } = req.body;
 

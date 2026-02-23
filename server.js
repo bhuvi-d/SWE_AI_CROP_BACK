@@ -44,7 +44,7 @@ mongoose.connect(mongoURI)
 
 // Routes (using dynamic import for ES modules)
 import cropAdviceRoutes from './routes/cropAdvice.js';
-app.use('/api', cropAdviceRoutes);
+app.use('/api/crop-advice', cropAdviceRoutes);
 
 app.get('/', (req, res) => {
   res.send('SWE AI Crop Backend - API Running');
@@ -68,7 +68,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', protect, userRoutes);
 app.use('/api/crops', protect, cropRoutes);
 app.use('/api/settings', protect, settingsRoutes);
-app.use('/api/consent', protect, consentRoutes);
+app.use('/api/consent', consentRoutes); // Public endpoint for logging compliance
 app.use('/api/diagnosis', protect, diagnosisRoutes);
 app.use('/api/community', communityRoutes); // Open access to view posts
 app.use('/api/calendar', protect, calendarRoutes);
