@@ -57,6 +57,58 @@ router.post('/crop-advice', async (req, res) => {
 });
 
 /**
+ * POST /api/crop-advice/batch
+ * Generate batch crop disease advice for multiple inputs
+ * Used by multi-image batch diagnosis
+ */
+router.post('/crop-advice/batch', async (req, res) => {
+  try {
+    const { diseases } = req.body;
+
+    if (!Array.isArray(diseases) || diseases.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required array of diseases'
+      });
+    }
+
+    console.log(`📝 Request: Generating batch advice for ${diseases.length} items`);
+
+    // Create an array of formatted inputs, defaulting where needed
+    const formattedDataArray = diseases.map(item => ({
+      crop: item.crop || 'Unknown',
+      disease: item.disease || 'Unknown',
+      severity: item.severity || 'unknown',
+      confidence: item.confidence || 0.0,
+      language: item.language || 'en'
+    }));
+
+    // Check if any required fields are intrinsically still missing (we enforced defaults above, but just in case)
+    const isValid = formattedDataArray.every(d => d.crop !== 'Unknown' && d.disease !== 'Unknown');
+    if (!isValid) {
+      return res.status(400).json({
+        success: false,
+        error: 'Each item in batch must have crop and disease specified'
+      });
+    }
+
+    const adviceResults = await llmService.generateBatchAdvice(formattedDataArray);
+
+    res.json({
+      success: true,
+      data: adviceResults
+    });
+
+  } catch (error) {
+    console.error('Error in /crop-advice/batch endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to generate batch crop advice'
+    });
+  }
+});
+
+/**
  * POST /api/analyze
  * Analyze crop image using CNN and generate advice
  * Supports image file upload
@@ -104,6 +156,74 @@ router.post("/analyze", upload.single("file"), async (req, res) => {
   } catch (error) {
     console.error("Prediction pipeline error:", error.message);
     res.status(500).json({ error: "Prediction pipeline failed" });
+  }
+});
+
+/**
+ * @desc    POST /api/analyze/batch
+ * @summary Analyze multiple crop images concurrently
+ */
+router.post("/analyze/batch", upload.array("files", 10), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: "Image files required" });
+    }
+
+    console.log(`Processing batch of ${req.files.length} images...`);
+
+    // Process all files concurrently
+    const analysisResults = await Promise.all(
+      req.files.map(async (file, index) => {
+        try {
+          const prediction = await predictDisease(file.buffer, file.originalname);
+
+          if (!prediction.success) {
+            return {
+              success: false,
+              filename: file.originalname,
+              error: prediction.error,
+              index
+            };
+          }
+
+          const disease = "Leaf_Mold"; // map later properly
+          const crop = "Tomato";
+
+          const advice = await llmService.generateCropAdvice({
+            crop,
+            disease,
+            severity: "Moderate",
+            confidence: prediction.confidence
+          });
+
+          return {
+            success: true,
+            filename: file.originalname,
+            disease,
+            confidence: prediction.confidence,
+            advice,
+            index
+          };
+
+        } catch (err) {
+          return {
+            success: false,
+            filename: file.originalname,
+            error: err.message,
+            index
+          };
+        }
+      })
+    );
+
+    res.json({
+      success: true,
+      results: analysisResults
+    });
+
+  } catch (error) {
+    console.error("Batch prediction failure:", error.message);
+    res.status(500).json({ error: "Batch prediction pipeline failed" });
   }
 });
 

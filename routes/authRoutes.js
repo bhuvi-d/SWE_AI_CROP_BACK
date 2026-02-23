@@ -1,6 +1,9 @@
 import express from 'express';
 import User from '../models/User.js';
 import AppSettings from '../models/AppSettings.js';
+import Otp from '../models/Otp.js';
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 
@@ -25,15 +28,25 @@ router.post('/login', async (req, res) => {
             await AppSettings.create({ user: user._id });
         }
 
-        // Generate Mock OTP
-        const otp = "123456"; // Fixed for demo
+        // Generate and save a 6-digit OTP
+        const otpCode = crypto.randomInt(100000, 999999).toString();
+
+        // Remove existing OTP for this number if it exists
+        await Otp.deleteMany({ phoneNumber });
+
+        await Otp.create({ phoneNumber, otp: otpCode });
+
+        console.log(`\n==========================================`);
+        console.log(`== MOCK SMS GATEWAY ==`);
+        console.log(`Sending OTP: [ ${otpCode} ] to ${phoneNumber}`);
+        console.log(`==========================================\n`);
 
         res.json({
             message: 'OTP sent successfully',
-            otp: otp, // Sending back for demo purposes
             userId: user._id
         });
     } catch (error) {
+        console.error("Login route error:", error);
         res.status(500).json({ message: error.message });
     }
 });
@@ -41,22 +54,45 @@ router.post('/login', async (req, res) => {
 // @desc    Verify OTP
 // @route   POST /api/auth/verify
 router.post('/verify', async (req, res) => {
-    const { phoneNumber, otp } = req.body;
+    try {
+        const { phoneNumber, otp } = req.body;
 
-    if (otp === "123456") {
-        const user = await User.findOne({ phoneNumber });
-        if (user) {
-            res.json({
-                _id: user._id,
-                phoneNumber: user.phoneNumber,
-                name: user.name,
-                token: "dummy_jwt_token_" + user._id
-            });
-        } else {
-            res.status(404).json({ message: 'User not found' });
+        if (!phoneNumber || !otp) {
+            return res.status(400).json({ message: 'Phone number and OTP are required' });
         }
-    } else {
-        res.status(400).json({ message: 'Invalid OTP' });
+
+        // Verify OTP against Database
+        const otpRecord = await Otp.findOne({ phoneNumber, otp });
+
+        if (!otpRecord) {
+            return res.status(400).json({ message: 'Invalid or expired OTP' });
+        }
+
+        // OTP is valid, remove it
+        await Otp.deleteOne({ _id: otpRecord._id });
+
+        const user = await User.findOne({ phoneNumber });
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Generate JWT Token
+        const token = jwt.sign(
+            { id: user._id },
+            process.env.JWT_SECRET || 'swe_default_secret_key_123',
+            { expiresIn: '30d' }
+        );
+
+        res.json({
+            _id: user._id,
+            phoneNumber: user.phoneNumber,
+            name: user.name,
+            token: token
+        });
+
+    } catch (error) {
+        console.error("Verify route error:", error);
+        res.status(500).json({ message: error.message });
     }
 });
 

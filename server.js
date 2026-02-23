@@ -59,16 +59,21 @@ import consentRoutes from './routes/consentRoutes.js';
 import diagnosisRoutes from './routes/diagnosisRoutes.js';
 import communityRoutes from './routes/communityRoutes.js';
 import calendarRoutes from './routes/calendarRoutes.js';
+import speechRoutes from './routes/speechRoutes.js';
+import logRoutes from './routes/logRoutes.js';
+import { protect } from './middleware/authMiddleware.js';
 
 // Mount routes
 app.use('/api/auth', authRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/crops', cropRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/consent', consentRoutes);
-app.use('/api/diagnosis', diagnosisRoutes);
-app.use('/api/community', communityRoutes);
-app.use('/api/calendar', calendarRoutes);
+app.use('/api/user', protect, userRoutes);
+app.use('/api/crops', protect, cropRoutes);
+app.use('/api/settings', protect, settingsRoutes);
+app.use('/api/consent', protect, consentRoutes);
+app.use('/api/diagnosis', protect, diagnosisRoutes);
+app.use('/api/community', communityRoutes); // Open access to view posts
+app.use('/api/calendar', protect, calendarRoutes);
+app.use('/api/speech', speechRoutes);
+app.use('/api/logs', logRoutes);
 
 app.listen(PORT, () => {
   const serverUrl = process.env.NODE_ENV === 'production'

@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const consentLogSchema = mongoose.Schema({
     user: {
         type: mongoose.Schema.Types.ObjectId,
-        required: true,
+        required: false, // Optional because Guests provide consent too
         ref: 'User'
     },
     agreed: {
