@@ -17,7 +17,16 @@ router.get('/:userId', async (req, res) => {
 // @desc    Save diagnosis
 // @route   POST /api/diagnosis
 router.post('/', async (req, res) => {
-    const { userId, imageUrl, predictedDisease, confidenceScore, treatmentSuggested } = req.body;
+    const {
+        userId,
+        imageUrl,
+        predictedDisease,
+        confidenceScore,
+        treatmentSuggested,
+        severity,
+        topPredictions,
+        heatmapUrl,
+    } = req.body;
 
     try {
         const record = await DiagnosisRecord.create({
@@ -25,7 +34,10 @@ router.post('/', async (req, res) => {
             imageUrl,
             predictedDisease,
             confidenceScore,
-            treatmentSuggested
+            treatmentSuggested,
+            severity,
+            topPredictions,
+            heatmapUrl,
         });
         res.status(201).json(record);
     } catch (error) {

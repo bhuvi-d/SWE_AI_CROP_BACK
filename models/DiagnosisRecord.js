@@ -16,6 +16,19 @@ const diagnosisRecordSchema = mongoose.Schema({
     },
     confidenceScore: Number,
     treatmentSuggested: String,
+    severity: {
+        level: { type: String, enum: ['healthy', 'mild', 'moderate', 'severe'], default: 'moderate' },
+        label: { type: String, default: 'Moderate' },
+        description: String,
+    },
+    topPredictions: [{
+        class_index: Number,
+        class_name: String,
+        crop: String,
+        disease: String,
+        confidence: Number,
+    }],
+    heatmapUrl: String, // URL to stored heatmap image (optional)
     timestamp: {
         type: Date,
         default: Date.now

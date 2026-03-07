@@ -11,6 +11,11 @@ export const predictDisease = async (fileBuffer, filename) => {
     form,
     {
       headers: form.getHeaders(),
+      // Increased timeout for Grad-CAM computation
+      timeout: 60000,
+      // Allow large responses (heatmap base64 can be large)
+      maxContentLength: 50 * 1024 * 1024,
+      maxBodyLength: 50 * 1024 * 1024,
     }
   );
 

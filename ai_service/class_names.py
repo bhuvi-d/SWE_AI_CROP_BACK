@@ -38,3 +38,54 @@ CLASS_NAMES = [
     "Tomato___Tomato_mosaic_virus",
     "Tomato___healthy"
 ]
+
+# Disease severity weights — inherent severity of each disease class.
+# Used together with confidence to determine overall severity.
+# Scale: 0 = healthy, 1 = mild, 2 = moderate, 3 = severe
+DISEASE_SEVERITY_MAP = {
+    "Apple___Apple_scab": 2,
+    "Apple___Black_rot": 3,
+    "Apple___Cedar_apple_rust": 2,
+    "Apple___healthy": 0,
+    "Blueberry___healthy": 0,
+    "Cherry_(including_sour)___Powdery_mildew": 2,
+    "Cherry_(including_sour)___healthy": 0,
+    "Corn_(maize)___Cercospora_leaf_spot": 2,
+    "Corn_(maize)___Common_rust": 2,
+    "Corn_(maize)___Northern_Leaf_Blight": 3,
+    "Corn_(maize)___healthy": 0,
+    "Grape___Black_rot": 3,
+    "Grape___Esca_(Black_Measles)": 3,
+    "Grape___Leaf_blight": 2,
+    "Grape___healthy": 0,
+    "Orange___Haunglongbing": 3,
+    "Peach___Bacterial_spot": 2,
+    "Peach___healthy": 0,
+    "Pepper,_bell___Bacterial_spot": 2,
+    "Pepper,_bell___healthy": 0,
+    "Potato___Early_blight": 2,
+    "Potato___Late_blight": 3,
+    "Potato___healthy": 0,
+    "Raspberry___healthy": 0,
+    "Soybean___healthy": 0,
+    "Squash___Powdery_mildew": 2,
+    "Strawberry___Leaf_scorch": 2,
+    "Strawberry___healthy": 0,
+    "Tomato___Bacterial_spot": 2,
+    "Tomato___Early_blight": 2,
+    "Tomato___Late_blight": 3,
+    "Tomato___Leaf_Mold": 2,
+    "Tomato___Septoria_leaf_spot": 2,
+    "Tomato___Spider_mites": 2,
+    "Tomato___Target_Spot": 2,
+    "Tomato___Yellow_Leaf_Curl_Virus": 3,
+    "Tomato___Tomato_mosaic_virus": 3,
+    "Tomato___healthy": 0,
+}
+
+# Confidence thresholds for severity refinement
+SEVERITY_THRESHOLDS = {
+    "high_confidence": 0.80,
+    "medium_confidence": 0.60,
+    "low_confidence": 0.40,
+}
