@@ -147,6 +147,142 @@ _gradcam_model = tf.keras.Model(
 
 
 # ============================================================
+# GATE 1A — LEAF COLOR CHECK
+# Rejects images that don't contain enough green / brown / yellow
+# (leaf-typical colours).  Must be called BEFORE any model inference.
+# ============================================================
+
+LEAF_COLOR_THRESHOLD = 0.20   # at least 20 % of pixels must be "leaf-coloured"
+
+def is_leaf_image(img_np: np.ndarray) -> bool:
+    """
+    Returns True when the image looks like a leaf (contains enough
+    green / brown / yellow pixels in HSV space).  Returns False when
+    the image is unlikely to be a plant-leaf photo.
+
+    Parameters
+    ----------
+    img_np : np.ndarray
+        RGB uint8 image array (H, W, 3).
+    """
+    bgr   = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    hsv   = cv2.cvtColor(bgr,    cv2.COLOR_BGR2HSV)
+
+    lower_green  = np.array([35,  40,  40])
+    upper_green  = np.array([85, 255, 255])
+    lower_brown  = np.array([10,  50,  20])
+    upper_brown  = np.array([30, 255, 200])
+    lower_yellow = np.array([22,  40,  80])
+    upper_yellow = np.array([34, 255, 255])
+
+    green_mask  = cv2.inRange(hsv, lower_green,  upper_green)
+    brown_mask  = cv2.inRange(hsv, lower_brown,  upper_brown)
+    yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+
+    leaf_pixels  = (
+        cv2.countNonZero(green_mask)
+        + cv2.countNonZero(brown_mask)
+        + cv2.countNonZero(yellow_mask)
+    )
+    total_pixels = img_np.shape[0] * img_np.shape[1]
+
+    ratio = leaf_pixels / total_pixels
+    print(f"[Gate 1A] Leaf colour ratio: {ratio:.2%}  (threshold {LEAF_COLOR_THRESHOLD:.0%})")
+    return ratio >= LEAF_COLOR_THRESHOLD
+
+
+# ============================================================
+# GATE 1B — REAL-PHOTO TEXTURE CHECK
+# Distinguishes real leaf photographs from drawings / illustrations /
+# clipart. Drawings often feature massive solid-colored backgrounds
+# (like 50% white paper or a flat canvas) and lack color richness.
+# ============================================================
+
+def is_real_photo(img_np: np.ndarray) -> tuple[bool, str]:
+    """
+    Multi-signal heuristic to reject drawings, cartoons, and clipart.
+    
+    Parameters
+    ----------
+    img_np : np.ndarray
+        RGB uint8 image (H, W, 3).
+
+    Returns
+    -------
+    (is_real, reason)
+        is_real: True when the image looks like a real photograph.
+        reason:  A string explaining why it failed (or "Passed").
+    """
+    bgr  = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    hsv  = cv2.cvtColor(bgr,    cv2.COLOR_BGR2HSV)
+    gray = cv2.cvtColor(bgr,    cv2.COLOR_BGR2GRAY)
+
+    h, w = gray.shape
+    total_pixels = h * w
+
+    # 1. Paper Background Check
+    # Typical white/light drawing paper has very low saturation (< 45)
+    # and high brightness (> 180).
+    paper_mask = cv2.inRange(hsv, np.array([0, 0, 180]), np.array([179, 45, 255]))
+    paper_ratio = cv2.countNonZero(paper_mask) / total_pixels
+    
+    # If more than 50% of the image is pure paper (which doesn't happen 
+    # in field photos but happens in almost every top-down drawing)...
+    if paper_ratio > 0.50:
+        print(f"[Gate 1B] FAILED: Paper background ratio = {paper_ratio:.1%}")
+        return False, f"Paper background detected ({paper_ratio:.0%})"
+
+    # 2. Flat Digital Background Check (Illustrations / clipart)
+    # If the non-leaf area has almost zero variance, it's digital art.
+    lower_green  = np.array([35,  40,  40])
+    upper_green  = np.array([85, 255, 255])
+    lower_brown  = np.array([10,  50,  20])
+    upper_brown  = np.array([30, 255, 200])
+    lower_yellow = np.array([22,  40,  80])
+    upper_yellow = np.array([34, 255, 255])
+
+    green_mask  = cv2.inRange(hsv, lower_green,  upper_green)
+    brown_mask  = cv2.inRange(hsv, lower_brown,  upper_brown)
+    yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    
+    leaf_mask = green_mask | brown_mask | yellow_mask
+    bg_mask = cv2.bitwise_not(leaf_mask)
+    
+    bg_pixels = gray[bg_mask > 0]
+    
+    # Only check if there's a significant background (>10% of image)
+    if len(bg_pixels) > (0.10 * total_pixels):
+        bg_std = float(np.std(bg_pixels))
+        if bg_std < 10.0:
+            print(f"[Gate 1B] FAILED: Artificially flat background (std={bg_std:.1f})")
+            return False, f"Artificially flat background (std={bg_std:.1f})"
+
+    # 3. Micro-Texture (Colored marker/pencil might pass the above,
+    # but lack real camera noise and depth of field)
+    # We measure Edge Density using Canny. A drawing often just has a single
+    # strong silhouette outline, while real leaves/backgrounds have thousands
+    # of intricate edges (grass, soil, thousands of tiny veins).
+    edges = cv2.Canny(gray, 100, 200)
+    edge_density = float(np.count_nonzero(edges)) / total_pixels
+    if edge_density < 0.015:
+        print(f"[Gate 1B] FAILED: Very low edge density (flat shading/drawing) = {edge_density:.1%}")
+        return False, f"Lacking structural detail (edge density {edge_density:.1%})"
+
+    # 4. Color Palette Complexity (Drawings lack millions of varied shades)
+    thumb = cv2.resize(bgr, (100, 100))
+    unique_colors = len(np.unique(thumb.reshape(-1, 3), axis=0))
+    if unique_colors < 1500:
+        print(f"[Gate 1B] FAILED: Unduly narrow colour palette = {unique_colors} colors")
+        return False, f"Lacking colour complexity ({unique_colors} distinct shades)"
+
+    print(f"[Gate 1B] PASSED (paper={paper_ratio:.1%}, "
+          f"bg_std={float(np.std(bg_pixels)) if len(bg_pixels) else 0:.1f}, "
+          f"edges={edge_density:.1%}, colors={unique_colors})")
+    
+    return True, "Passed real photo checks"
+
+
+# ============================================================
 # CROP ROUTING — decide which model to use
 # ============================================================
 
@@ -306,11 +442,42 @@ def classify_severity(confidence: float, class_name: str) -> dict:
 # PREDICT ENDPOINT
 # ============================================================
 
+CONFIDENCE_THRESHOLD = 0.80   # Gate 2: minimum acceptable model confidence
+
+
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     original_np = np.array(image)
+
+    # ================================================================
+    # GATE 1 — FAST REJECTION FOR NON-PHOTOS & NON-LEAVES
+    # Reject images that clearly aren't real leaf photographs.
+    # ================================================================
+
+    # Gate 1A: Leaf Colour Check
+    if not is_leaf_image(original_np):
+        return {
+            "success": False,
+            "error": "no_leaf_detected",
+            "message": (
+                "No leaf detected in this image. "
+                "Please take a clear photo of a plant leaf."
+            ),
+        }
+
+    # Gate 1B: Real-Photo Texture Check (rejects drawings/clipart)
+    is_real, photo_score = is_real_photo(original_np)
+    if not is_real:
+        return {
+            "success": False,
+            "error": "not_real_photo",
+            "message": (
+                "This appears to be a drawing or illustration. "
+                "Please upload a real photograph of a plant leaf."
+            ),
+        }
 
     # ---- STEP 1: General model for initial crop classification ----
     image_resized = image.resize((IMG_SIZE, IMG_SIZE))
@@ -333,6 +500,20 @@ async def predict(file: UploadFile = File(...)):
         print(f"Routing to specialist model: {specialist_key}")
         result = _predict_specialist(specialist_key, image)
 
+        # ============================================================
+        # GATE 2 — CONFIDENCE THRESHOLD CHECK (specialist path)
+        # ============================================================
+        if result["confidence"] < CONFIDENCE_THRESHOLD:
+            return {
+                "success": False,
+                "error": "low_confidence",
+                "message": (
+                    f"Prediction confidence too low ({result['confidence']:.0%}). "
+                    "Please ensure the leaf is centred, well-lit, and in focus."
+                ),
+                "confidence": result["confidence"],
+            }
+
         # Attempt Grad-CAM on general model even when specialist is used
         try:
             cam = generate_gradcam(img_batch, general_class_index)
@@ -346,6 +527,20 @@ async def predict(file: UploadFile = File(...)):
 
     # ---- STEP 3: Fallback — use general model result ----
     print("Using general model result (no specialist found).")
+
+    # ============================================================
+    # GATE 2 — CONFIDENCE THRESHOLD CHECK (general model path)
+    # ============================================================
+    if general_confidence < CONFIDENCE_THRESHOLD:
+        return {
+            "success": False,
+            "error": "low_confidence",
+            "message": (
+                f"Prediction confidence too low ({general_confidence:.0%}). "
+                "Please ensure the leaf is centred, well-lit, and in focus."
+            ),
+            "confidence": general_confidence,
+        }
 
     crop_name = general_class_name.split("___")[0].replace("_", " ").replace("(", "").replace(")", "").strip()
     disease_name = (
