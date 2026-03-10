@@ -156,39 +156,59 @@ LEAF_COLOR_THRESHOLD = 0.20   # at least 20 % of pixels must be "leaf-coloured"
 
 def is_leaf_image(img_np: np.ndarray) -> bool:
     """
-    Returns True when the image looks like a leaf (contains enough
-    green / brown / yellow pixels in HSV space).  Returns False when
-    the image is unlikely to be a plant-leaf photo.
-
-    Parameters
-    ----------
-    img_np : np.ndarray
-        RGB uint8 image array (H, W, 3).
+    Returns True when the image looks like a leaf.
+    Strictly filters out non-plants (like dogs) by checking color balance.
     """
-    bgr   = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-    hsv   = cv2.cvtColor(bgr,    cv2.COLOR_BGR2HSV)
+    h, w = img_np.shape[:2]
+    total_pixels = h * w
+    
+    # Extract Center Crop (most important part)
+    cy1, cy2 = int(h*0.25), int(h*0.75)
+    cx1, cx2 = int(w*0.25), int(w*0.75)
+    center_rgb = img_np[cy1:cy2, cx1:cx2].astype(float)
+    
+    # 1. RGB BALANCE CHECK (Excess Green Index)
+    # Plants: G > R and G > B. Mammals/Fur: R > G.
+    r, g, b = cv2.split(center_rgb)
+    plant_index = (2 * g) - r - b
+    avg_index = np.mean(plant_index)
+    
+    # A true plant leaf (even diseased) usually has a positive plant index
+    # while a brown/golden dog will have a very low or negative index.
+    if avg_index < 15.0:
+        print(f"[Gate 1A] FAILED: Subject is not plant-like (ExG={avg_index:.1f})")
+        return False
 
-    lower_green  = np.array([35,  40,  40])
-    upper_green  = np.array([85, 255, 255])
-    lower_brown  = np.array([10,  50,  20])
-    upper_brown  = np.array([30, 255, 200])
-    lower_yellow = np.array([22,  40,  80])
-    upper_yellow = np.array([34, 255, 255])
+    # 2. VIBRANT GREEN CHECK (Overall)
+    bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    hsv = cv2.cvtColor(bgr,    cv2.COLOR_BGR2HSV)
+    
+    lower_green = np.array([30, 50, 40])
+    upper_green = np.array([95, 255, 255])
+    green_mask = cv2.inRange(hsv, lower_green, upper_green)
+    green_ratio = cv2.countNonZero(green_mask) / total_pixels
 
-    green_mask  = cv2.inRange(hsv, lower_green,  upper_green)
-    brown_mask  = cv2.inRange(hsv, lower_brown,  upper_brown)
-    yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    # If it's a leaf, there should be at least some green somewhere.
+    if green_ratio < 0.08:
+        print(f"[Gate 1A] FAILED: Lack of chlorophyll colors ({green_ratio:.1%})")
+        return False
 
-    leaf_pixels  = (
-        cv2.countNonZero(green_mask)
-        + cv2.countNonZero(brown_mask)
-        + cv2.countNonZero(yellow_mask)
-    )
-    total_pixels = img_np.shape[0] * img_np.shape[1]
+    # 3. CENTRE PLANT COLORS (Brown/Yellow/Green)
+    center_hsv = hsv[cy1:cy2, cx1:cx2]
+    # Stricter saturation and hue for plant matter
+    mask_g = cv2.inRange(center_hsv, np.array([30, 55, 40]), np.array([95, 255, 255]))
+    mask_b = cv2.inRange(center_hsv, np.array([10, 65, 20]), np.array([30, 255, 200]))
+    mask_y = cv2.inRange(center_hsv, np.array([20, 55, 70]), np.array([35, 255, 255]))
+    
+    center_plant_ratio = (cv2.countNonZero(mask_g) + cv2.countNonZero(mask_b) + cv2.countNonZero(mask_y)) / (center_hsv.shape[0] * center_hsv.shape[1])
+    
+    if center_plant_ratio < 0.45:
+        print(f"[Gate 1A] FAILED: Center density low ({center_plant_ratio:.1%})")
+        return False
 
-    ratio = leaf_pixels / total_pixels
-    print(f"[Gate 1A] Leaf colour ratio: {ratio:.2%}  (threshold {LEAF_COLOR_THRESHOLD:.0%})")
-    return ratio >= LEAF_COLOR_THRESHOLD
+    print(f"[Gate 1A] PASSED: ExG={avg_index:.1f}, green={green_ratio:.1%}, center={center_plant_ratio:.1%}")
+    return True
+
 
 
 # ============================================================
@@ -223,61 +243,29 @@ def is_real_photo(img_np: np.ndarray) -> tuple[bool, str]:
     # 1. Paper Background Check
     # Typical white/light drawing paper has very low saturation (< 45)
     # and high brightness (> 180).
-    paper_mask = cv2.inRange(hsv, np.array([0, 0, 180]), np.array([179, 45, 255]))
+    paper_mask = cv2.inRange(hsv, np.array([0, 0, 150]), np.array([179, 45, 255]))
     paper_ratio = cv2.countNonZero(paper_mask) / total_pixels
     
-    # If more than 50% of the image is pure paper (which doesn't happen 
-    # in field photos but happens in almost every top-down drawing)...
-    if paper_ratio > 0.50:
+    # If more than 60% of the image is pure paper
+    if paper_ratio > 0.60:
         print(f"[Gate 1B] FAILED: Paper background ratio = {paper_ratio:.1%}")
         return False, f"Paper background detected ({paper_ratio:.0%})"
 
-    # 2. Flat Digital Background Check (Illustrations / clipart)
-    # If the non-leaf area has almost zero variance, it's digital art.
-    lower_green  = np.array([35,  40,  40])
-    upper_green  = np.array([85, 255, 255])
-    lower_brown  = np.array([10,  50,  20])
-    upper_brown  = np.array([30, 255, 200])
-    lower_yellow = np.array([22,  40,  80])
-    upper_yellow = np.array([34, 255, 255])
-
-    green_mask  = cv2.inRange(hsv, lower_green,  upper_green)
-    brown_mask  = cv2.inRange(hsv, lower_brown,  upper_brown)
-    yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
-    
-    leaf_mask = green_mask | brown_mask | yellow_mask
-    bg_mask = cv2.bitwise_not(leaf_mask)
-    
-    bg_pixels = gray[bg_mask > 0]
-    
-    # Only check if there's a significant background (>10% of image)
-    if len(bg_pixels) > (0.10 * total_pixels):
-        bg_std = float(np.std(bg_pixels))
-        if bg_std < 10.0:
-            print(f"[Gate 1B] FAILED: Artificially flat background (std={bg_std:.1f})")
-            return False, f"Artificially flat background (std={bg_std:.1f})"
-
-    # 3. Micro-Texture (Colored marker/pencil might pass the above,
-    # but lack real camera noise and depth of field)
-    # We measure Edge Density using Canny. A drawing often just has a single
-    # strong silhouette outline, while real leaves/backgrounds have thousands
-    # of intricate edges (grass, soil, thousands of tiny veins).
+    # 3. Micro-Texture
     edges = cv2.Canny(gray, 100, 200)
     edge_density = float(np.count_nonzero(edges)) / total_pixels
-    if edge_density < 0.015:
+    if edge_density < 0.003:
         print(f"[Gate 1B] FAILED: Very low edge density (flat shading/drawing) = {edge_density:.1%}")
         return False, f"Lacking structural detail (edge density {edge_density:.1%})"
 
-    # 4. Color Palette Complexity (Drawings lack millions of varied shades)
+    # 4. Color Palette Complexity
     thumb = cv2.resize(bgr, (100, 100))
     unique_colors = len(np.unique(thumb.reshape(-1, 3), axis=0))
-    if unique_colors < 1500:
+    if unique_colors < 250:
         print(f"[Gate 1B] FAILED: Unduly narrow colour palette = {unique_colors} colors")
         return False, f"Lacking colour complexity ({unique_colors} distinct shades)"
 
-    print(f"[Gate 1B] PASSED (paper={paper_ratio:.1%}, "
-          f"bg_std={float(np.std(bg_pixels)) if len(bg_pixels) else 0:.1f}, "
-          f"edges={edge_density:.1%}, colors={unique_colors})")
+    print(f"[Gate 1B] PASSED (paper={paper_ratio:.1%}, edges={edge_density:.1%}, colors={unique_colors})")
     
     return True, "Passed real photo checks"
 
@@ -293,8 +281,8 @@ def _route_crop(class_name: str) -> str | None:
         return "tomato"
     if "potato" in lc:
         return "potato"
-    if "grape" in lc:
-        return "grape"
+    # if "grape" in lc:
+    #     return "grape"
     if "corn" in lc or "maize" in lc:
         return "maize"
     if "rice" in lc:
@@ -442,7 +430,7 @@ def classify_severity(confidence: float, class_name: str) -> dict:
 # PREDICT ENDPOINT
 # ============================================================
 
-CONFIDENCE_THRESHOLD = 0.80   # Gate 2: minimum acceptable model confidence
+CONFIDENCE_THRESHOLD = 0.60   # Gate 2: minimum acceptable model confidence
 
 
 @app.post("/predict")
@@ -509,7 +497,7 @@ async def predict(file: UploadFile = File(...)):
                 "error": "low_confidence",
                 "message": (
                     f"Prediction confidence too low ({result['confidence']:.0%}). "
-                    "Please ensure the leaf is centred, well-lit, and in focus."
+                    "Please ensure the image is centred, well-lit, and in focus."
                 ),
                 "confidence": result["confidence"],
             }
@@ -537,7 +525,7 @@ async def predict(file: UploadFile = File(...)):
             "error": "low_confidence",
             "message": (
                 f"Prediction confidence too low ({general_confidence:.0%}). "
-                "Please ensure the leaf is centred, well-lit, and in focus."
+                "Please ensure the image is centred, well-lit, and in focus."
             ),
             "confidence": general_confidence,
         }
