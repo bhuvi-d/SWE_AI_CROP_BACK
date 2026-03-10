@@ -320,4 +320,87 @@ router.post('/voice-chat', upload.single('audio'), async (req, res) => {
 });
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/speech/text-chat
+// Accepts a transcript (already captured by on-device STT) in the user's
+// language, generates an agriculture LLM answer, translates it, synthesizes
+// TTS audio, and returns everything.
+//
+// Body: { text: string, langCode: string }
+// Returns: { success, answer, audioBase64, langCode }
+// ═══════════════════════════════════════════════════════════════════════════
+router.post('/text-chat', async (req, res) => {
+  try {
+    const { text, langCode: rawLang = 'en' } = req.body;
+    const langCode = resolveCode(rawLang);
+
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'text is required.' });
+    }
+
+    console.log(`[TextChat] lang=${langCode}, text="${text.substring(0, 60)}..."`);
+
+    // ── STEP 1: Translate user's text to English for Gemini ────────────────
+    let questionForLLM = text.trim();
+    if (langCode !== 'en') {
+      try {
+        const transRes = await axios.post(SARVAM_TRANS_URL, {
+          input: questionForLLM,
+          source_language_code: (LANG_CONFIG[langCode] || LANG_CONFIG['en']).sarvamCode,
+          target_language_code: 'en-IN',
+          model: 'sarvam-translate:v1',
+          mode: 'formal',
+        }, {
+          headers: { 'api-subscription-key': SARVAM_API_KEY, 'Content-Type': 'application/json' },
+          timeout: 20000,
+        });
+        questionForLLM = transRes.data.translated_text || questionForLLM;
+        console.log(`[TextChat] Translated question: "${questionForLLM.substring(0, 60)}..."`);
+      } catch (e) {
+        console.warn('[TextChat] Translate-to-English failed:', e.message);
+      }
+    }
+
+    // ── STEP 2: Gemini LLM ────────────────────────────────────────────────
+    let answerInEnglish;
+    try {
+      answerInEnglish = await getAgriculturalAnswer(questionForLLM, langCode);
+      console.log(`[TextChat] LLM answer: "${answerInEnglish.substring(0, 80)}..."`);
+    } catch (e) {
+      console.error('[TextChat] LLM failed:', e.message);
+      return res.status(502).json({ success: false, error: 'AI assistant is unavailable. Please try again.' });
+    }
+
+    // ── STEP 3: Translate LLM answer to user's language ────────────────────
+    let answerInLang = answerInEnglish;
+    if (langCode !== 'en') {
+      try {
+        answerInLang = await translateText(answerInEnglish, langCode);
+      } catch (e) {
+        console.warn('[TextChat] Translate-answer failed:', e.message);
+      }
+    }
+
+    // ── STEP 4: TTS ────────────────────────────────────────────────────────
+    let audioBase64 = null;
+    try {
+      audioBase64 = await synthesizeSpeech(answerInLang, langCode);
+    } catch (e) {
+      console.warn('[TextChat] TTS failed (non-fatal):', e.message);
+    }
+
+    res.json({
+      success: true,
+      answer: answerInLang,
+      audioBase64,
+      langCode,
+    });
+
+  } catch (error) {
+    console.error('[TextChat] Unhandled error:', error.message);
+    res.status(500).json({ success: false, error: 'An unexpected error occurred. Please try again.' });
+  }
+});
+
+
 export default router;
