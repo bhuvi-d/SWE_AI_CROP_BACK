@@ -136,18 +136,15 @@ async function synthesizeSpeech(text, langCode) {
 }
 
 // ─── Helper: Gemini LLM agriculture answer ────────────────────────────────
-async function getAgriculturalAnswer(question, replyLangCode) {
-  const langNames = {
-    'en': 'English', 'hi': 'Hindi', 'te': 'Telugu', 'ta': 'Tamil',
-    'kn': 'Kannada', 'ml': 'Malayalam', 'bn': 'Bengali', 'mr': 'Marathi',
-    'gu': 'Gujarati', 'pa': 'Punjabi', 'or': 'Odia',
-  };
-  const langName = langNames[replyLangCode] || 'English';
-
+// IMPORTANT: Always ask Gemini to reply in ENGLISH. Gemini is unreliable at
+// generating Indian language text, often returning English regardless or
+// mixing languages. We use Sarvam Translate (purpose-built for Indian
+// languages) to convert the English answer to the target language reliably.
+async function getAgriculturalAnswer(question) {
   const systemPrompt = `You are CropAID, an expert agricultural assistant for Indian farmers.
 Answer ONLY agriculture-related questions: crop diseases, pest control, soil health, irrigation, fertilizers, weather effects on crops, organic farming, crop rotation, plant health, and yield improvement.
 If the question is not about farming or agriculture, politely say you can only help with farming topics.
-Always reply in ${langName}. Keep your answer concise (4-6 sentences), practical, and farmer-friendly.
+ALWAYS reply in English. Keep your answer concise (4-6 sentences), practical, and farmer-friendly.
 Do not use markdown formatting. Use plain text only.`;
 
   const answer = await llmService.chatWithAI(question, systemPrompt);
@@ -263,11 +260,11 @@ router.post('/voice-chat', upload.single('audio'), async (req, res) => {
       }
     }
 
-    // ── STEP 3: Gemini LLM — generate agriculture answer ───────────────────
+    // ── STEP 3: Gemini LLM — generate agriculture answer (always English) ──
     let answerInEnglish = '';
     try {
-      answerInEnglish = await getAgriculturalAnswer(questionForLLM, langCode);
-      console.log(`[VoiceChat] LLM answer (en): "${answerInEnglish.substring(0, 80)}..."`);
+      answerInEnglish = await getAgriculturalAnswer(questionForLLM);
+      console.log(`[VoiceChat] LLM answer (EN): "${answerInEnglish.substring(0, 100)}"`);
     } catch (llmError) {
       console.error('[VoiceChat] LLM failed:', llmError.message);
       return res.status(502).json({
@@ -361,27 +358,28 @@ router.post('/text-chat', async (req, res) => {
       }
     }
 
-    // ── STEP 2: Gemini LLM ────────────────────────────────────────────────
+    // ── STEP 2: Gemini LLM (always replies in English) ────────────────────
     let answerInEnglish;
     try {
-      answerInEnglish = await getAgriculturalAnswer(questionForLLM, langCode);
-      console.log(`[TextChat] LLM answer: "${answerInEnglish.substring(0, 80)}..."`);
+      answerInEnglish = await getAgriculturalAnswer(questionForLLM);
+      console.log(`[TextChat] LLM answer (EN): "${answerInEnglish.substring(0, 100)}"`);
     } catch (e) {
       console.error('[TextChat] LLM failed:', e.message);
       return res.status(502).json({ success: false, error: 'AI assistant is unavailable. Please try again.' });
     }
 
-    // ── STEP 3: Translate LLM answer to user's language ────────────────────
+    // ── STEP 3: Translate English answer → user's language (Sarvam) ────────
     let answerInLang = answerInEnglish;
     if (langCode !== 'en') {
       try {
         answerInLang = await translateText(answerInEnglish, langCode);
+        console.log(`[TextChat] Translated answer (${langCode}): "${answerInLang.substring(0, 100)}"`);
       } catch (e) {
-        console.warn('[TextChat] Translate-answer failed:', e.message);
+        console.warn('[TextChat] Translate-answer failed, falling back to English:', e.message);
       }
     }
 
-    // ── STEP 4: TTS ────────────────────────────────────────────────────────
+    // ── STEP 4: TTS with native-language speaker (Sarvam Bulbul v3) ────────
     let audioBase64 = null;
     try {
       audioBase64 = await synthesizeSpeech(answerInLang, langCode);
