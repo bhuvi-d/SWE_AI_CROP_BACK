@@ -286,7 +286,9 @@ def is_real_photo(img_np: np.ndarray) -> tuple[bool, str]:
 # CROP ROUTING — decide which model to use
 # ============================================================
 
-def _route_crop(class_name: str) -> str | None:
+from typing import Optional
+
+def _route_crop(class_name: str) -> Optional[str]:
     """Return a specialist key if the predicted class belongs to a specialist crop."""
     lc = class_name.lower()
     if "tomato" in lc:
