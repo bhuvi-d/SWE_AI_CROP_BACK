@@ -13,32 +13,52 @@ const router = express.Router();
 // @desc    Register/Login user
 // @route   POST /api/auth/login
 router.post('/login', async (req, res) => {
-    const { phoneNumber } = req.body;
+    const { phoneNumber, email } = req.body;
 
-    if (!phoneNumber) {
-        return res.status(400).json({ message: 'Phone number is required' });
+    if (!phoneNumber && !email) {
+        return res.status(400).json({ message: 'Phone number or Email is required' });
     }
 
     try {
-        let user = await User.findOne({ phoneNumber });
+        // Find existing user by either match
+        let query = [];
+        if (phoneNumber) query.push({ phoneNumber });
+        if (email) query.push({ email });
+
+        let user = await User.findOne({ $or: query });
 
         if (!user) {
-            user = await User.create({ phoneNumber });
-            // Initialize settings for new user
+            // New user — create with whatever identifiers are provided
+            user = await User.create({ phoneNumber, email });
             await AppSettings.create({ user: user._id });
+        } else {
+            // Update existing user if a new piece of info is provided
+            if (phoneNumber && !user.phoneNumber) user.phoneNumber = phoneNumber;
+            if (email && !user.email) user.email = email;
+            if (user.isModified()) await user.save();
         }
 
         // Generate and save a 6-digit OTP
         const otpCode = crypto.randomInt(100000, 999999).toString();
 
-        // Remove existing OTP for this number if it exists
-        await Otp.deleteMany({ phoneNumber });
+        // Clear previous OTPs for this user's identifiers
+        await Otp.deleteMany({
+            $or: [
+                phoneNumber ? { phoneNumber } : null,
+                email ? { email } : null
+            ].filter(Boolean)
+        });
 
-        await Otp.create({ phoneNumber, otp: otpCode });
+        await Otp.create({ phoneNumber, email, otp: otpCode });
 
+        // MOCK DELIVERY LOGS
         console.log(`\n==========================================`);
-        console.log(`== MOCK SMS GATEWAY ==`);
-        console.log(`Sending OTP: [ ${otpCode} ] to ${phoneNumber}`);
+        if (phoneNumber) {
+            console.log(`== MOCK SMS GATEWAY == Sending OTP: [ ${otpCode} ] to ${phoneNumber}`);
+        }
+        if (email) {
+            console.log(`== MOCK EMAIL GATEWAY == Sending OTP: [ ${otpCode} ] to ${email}`);
+        }
         console.log(`==========================================\n`);
 
         res.json({
@@ -55,14 +75,18 @@ router.post('/login', async (req, res) => {
 // @route   POST /api/auth/verify
 router.post('/verify', async (req, res) => {
     try {
-        const { phoneNumber, otp } = req.body;
+        const { phoneNumber, email, otp } = req.body;
 
-        if (!phoneNumber || !otp) {
-            return res.status(400).json({ message: 'Phone number and OTP are required' });
+        if ((!phoneNumber && !email) || !otp) {
+            return res.status(400).json({ message: 'Identifier and OTP are required' });
         }
 
         // Verify OTP against Database
-        const otpRecord = await Otp.findOne({ phoneNumber, otp });
+        let otpQuery = { otp };
+        if (phoneNumber) otpQuery.phoneNumber = phoneNumber;
+        if (email) otpQuery.email = email;
+
+        const otpRecord = await Otp.findOne(otpQuery);
 
         if (!otpRecord) {
             return res.status(400).json({ message: 'Invalid or expired OTP' });
@@ -71,7 +95,14 @@ router.post('/verify', async (req, res) => {
         // OTP is valid, remove it
         await Otp.deleteOne({ _id: otpRecord._id });
 
-        const user = await User.findOne({ phoneNumber });
+        // Find the user by whatever identifier was used
+        const user = await User.findOne({
+            $or: [
+                phoneNumber ? { phoneNumber } : null,
+                email ? { email } : null
+            ].filter(Boolean)
+        });
+
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -86,6 +117,7 @@ router.post('/verify', async (req, res) => {
         res.json({
             _id: user._id,
             phoneNumber: user.phoneNumber,
+            email: user.email,
             name: user.name,
             token: token
         });
