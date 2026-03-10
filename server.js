@@ -77,6 +77,7 @@ import calendarRoutes from './routes/calendarRoutes.js';
 import speechRoutes from './routes/speechRoutes.js';
 import logRoutes from './routes/logRoutes.js';
 import feedbackRoutes from './routes/feedbackRoutes.js';
+import ttsRoutes from './routes/ttsRoutes.js';
 import { protect } from './middleware/authMiddleware.js';
 
 // Mount routes
@@ -91,6 +92,7 @@ app.use('/api/calendar', protect, calendarRoutes);
 app.use('/api/speech', speechRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/feedback', feedbackRoutes);
+app.use('/api/tts', ttsRoutes);
 
 app.listen(PORT, () => {
   const serverUrl = process.env.NODE_ENV === 'production'
