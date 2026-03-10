@@ -6,8 +6,10 @@ export const predictDisease = async (fileBuffer, filename) => {
 
   form.append("file", fileBuffer, filename);
 
+  const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://127.0.0.1:5001";
+
   const response = await axios.post(
-    "http://127.0.0.1:5001/predict",
+    `${AI_SERVICE_URL}/predict`,
     form,
     {
       headers: form.getHeaders(),

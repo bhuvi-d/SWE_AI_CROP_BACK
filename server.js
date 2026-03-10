@@ -43,9 +43,19 @@ app.use(express.json());
 
 // Database Connection
 const mongoURI = process.env.MONGO_URL;
+
+if (!mongoURI) {
+  console.error('❌ FATAL ERROR: MONGO_URL is not defined in environment variables.');
+  console.error('   Please add MONGO_URL to your .env file or Render dashboard.');
+  process.exit(1); // Stop the server from running without a DB
+}
+
 mongoose.connect(mongoURI)
   .then(() => console.log('✓ Connected to MongoDB'))
-  .catch(err => console.error('❌ MongoDB connection error:', err));
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err);
+    process.exit(1);
+  });
 
 // Routes (using dynamic import for ES modules)
 import cropAdviceRoutes from './routes/cropAdvice.js';
