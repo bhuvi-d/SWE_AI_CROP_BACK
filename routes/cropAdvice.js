@@ -145,16 +145,36 @@ router.post("/analyze", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "Image file required" });
     }
 
-    console.log("Sending image to CNN service...");
+    console.log("Sending image to AI service (HuggingFace)...");
 
-    // Call the CNN service
-    const prediction = await predictDisease(req.file.buffer, req.file.originalname);
+    let prediction;
+    try {
+      // Call the CNN service (HuggingFace AI)
+      prediction = await predictDisease(req.file.buffer, req.file.originalname);
+    } catch (aiError) {
+      // AI service unreachable (cold start, timeout, etc.)
+      console.error("AI service connection failed:", aiError.message);
+
+      // Check if it's a timeout
+      const isTimeout = aiError.code === 'ECONNABORTED' ||
+                        aiError.message?.toLowerCase().includes('timeout');
+
+      return res.status(503).json({
+        success: false,
+        error: isTimeout ? 'ai_service_timeout' : 'ai_service_unavailable',
+        message: isTimeout
+          ? 'The AI service is starting up. Please wait a moment and try again.'
+          : 'The AI service is currently unavailable. Please try again shortly.'
+      });
+    }
 
     // ---------- IMPORTANT CHECK ----------
+    // Pass the human-readable message (not just the error code) to the client
     if (!prediction.success) {
       return res.json({
         success: false,
-        message: prediction.error
+        error: prediction.error,
+        message: prediction.message || prediction.error || 'Could not process the image.'
       });
     }
     // -------------------------------------
@@ -189,7 +209,11 @@ router.post("/analyze", upload.single("file"), async (req, res) => {
 
   } catch (error) {
     console.error("Prediction pipeline error:", error.message);
-    res.status(500).json({ error: "Prediction pipeline failed" });
+    res.status(500).json({
+      success: false,
+      error: 'pipeline_error',
+      message: 'An error occurred while analysing the image. Please try again.'
+    });
   }
 });
 
