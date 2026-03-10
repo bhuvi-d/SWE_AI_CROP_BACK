@@ -78,9 +78,13 @@ import speechRoutes from './routes/speechRoutes.js';
 import logRoutes from './routes/logRoutes.js';
 import feedbackRoutes from './routes/feedbackRoutes.js';
 import ttsRoutes from './routes/ttsRoutes.js';
+import simulatorRoutes from './routes/simulatorRoutes.js';
+import podcastRoutes from './routes/podcastRoutes.js';
 import { protect } from './middleware/authMiddleware.js';
 
 // Mount routes
+app.use('/api/simulator', simulatorRoutes);
+app.use('/api/podcast', podcastRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', protect, userRoutes);
 app.use('/api/crops', protect, cropRoutes);
