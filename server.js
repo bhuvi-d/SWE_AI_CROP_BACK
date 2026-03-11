@@ -2,11 +2,16 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 
 dotenv.config(); // load .env
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Create HTTP server for Socket.IO
+const httpServer = createServer(app);
 
 // Middleware - CORS Configuration
 // Allow multiple origins for both development and production
@@ -41,6 +46,43 @@ app.use(cors({
 
 app.use(express.json());
 
+// ─── Socket.IO Setup ───
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (origin.startsWith('http://localhost:')) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1) return callback(null, true);
+      callback(new Error('Not allowed by CORS'));
+    },
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log(`✓ Socket connected: ${socket.id}`);
+
+  // Join a user-specific room for targeted events
+  socket.on('join', (userId) => {
+    if (userId) {
+      socket.join(`user_${userId}`);
+      console.log(`  Socket ${socket.id} joined room user_${userId}`);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`  Socket disconnected: ${socket.id}`);
+  });
+});
+
+// Middleware: attach io instance to every request for routes to emit events
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
 // Database Connection
 const mongoURI = process.env.MONGO_URL;
 
@@ -74,12 +116,14 @@ import consentRoutes from './routes/consentRoutes.js';
 import diagnosisRoutes from './routes/diagnosisRoutes.js';
 import communityRoutes from './routes/communityRoutes.js';
 import calendarRoutes from './routes/calendarRoutes.js';
+import farmTaskRoutes from './routes/farmTaskRoutes.js';
 import speechRoutes from './routes/speechRoutes.js';
 import logRoutes from './routes/logRoutes.js';
 import feedbackRoutes from './routes/feedbackRoutes.js';
 import ttsRoutes from './routes/ttsRoutes.js';
 import simulatorRoutes from './routes/simulatorRoutes.js';
 import podcastRoutes from './routes/podcastRoutes.js';
+import taskReminderRoutes from './routes/taskReminderRoutes.js';
 import { protect } from './middleware/authMiddleware.js';
 
 // Mount routes
@@ -93,12 +137,14 @@ app.use('/api/consent', consentRoutes); // Public endpoint for logging complianc
 app.use('/api/diagnosis', protect, diagnosisRoutes);
 app.use('/api/community', communityRoutes); // Open access to view posts
 app.use('/api/calendar', protect, calendarRoutes);
+app.use('/api/farm-tasks', farmTaskRoutes);
 app.use('/api/speech', speechRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/tts', ttsRoutes);
+app.use('/api/task-reminders', taskReminderRoutes);
 
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   const serverUrl = process.env.NODE_ENV === 'production'
     ? 'https://swe-ai-crop-back.onrender.com'
     : `http://localhost:${PORT}`;
