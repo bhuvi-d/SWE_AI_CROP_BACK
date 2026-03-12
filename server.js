@@ -8,7 +8,7 @@ import { Server as SocketIOServer } from 'socket.io';
 dotenv.config(); // load .env
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 // Create HTTP server for Socket.IO
 const httpServer = createServer(app);
@@ -28,7 +28,7 @@ app.use(cors({
     if (!origin) return callback(null, true);
 
     // Allow all localhost origins for Flutter web testing
-    if (origin.startsWith('http://localhost:')) {
+    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
       return callback(null, true);
     }
 
@@ -93,7 +93,26 @@ if (!mongoURI) {
 }
 
 mongoose.connect(mongoURI)
-  .then(() => console.log('✓ Connected to MongoDB'))
+  .then(async () => {
+    console.log('✓ Connected to MongoDB');
+    // Ensure stable guest user exists (US6)
+    try {
+      const User = mongoose.model('User');
+      const guestId = '1aa73030589c2135f668eacb';
+      const guestExists = await User.findById(guestId);
+      if (!guestExists) {
+        await User.create({
+          _id: guestId,
+          name: 'Guest Farmer',
+          phoneNumber: '0000000000',
+          role: 'guest'
+        });
+        console.log('✓ Stable guest user created');
+      }
+    } catch (err) {
+      console.error('Error ensuring guest user:', err.message);
+    }
+  })
   .catch(err => {
     console.error('❌ MongoDB connection error:', err);
     process.exit(1);
@@ -144,7 +163,7 @@ app.use('/api/feedback', feedbackRoutes);
 app.use('/api/tts', ttsRoutes);
 app.use('/api/task-reminders', taskReminderRoutes);
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   const serverUrl = process.env.NODE_ENV === 'production'
     ? 'https://swe-ai-crop-back.onrender.com'
     : `http://localhost:${PORT}`;

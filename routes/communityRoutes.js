@@ -17,6 +17,35 @@ router.get('/', async (req, res) => {
     }
 });
 
+// Get hot words (trending topics)
+router.get('/hot-words', async (req, res) => {
+    try {
+        const posts = await CommunityPost.find().select('title content');
+        const text = posts.map(p => `${p.title} ${p.content}`).join(' ').toLowerCase();
+        
+        // Simple stop words filter
+        const stopWords = new Set(['the', 'and', 'a', 'to', 'is', 'in', 'it', 'of', 'for', 'with', 'on', 'at', 'by', 'an', 'be', 'this', 'that', 'from', 'as', 'are', 'was', 'my', 'your', 'i', 'you', 'how', 'what', 'can', 'do', 'any', 'my', 'me', 'our', 'we', 'they', 'them', 'he', 'she', 'it', 'his', 'her', 'its']);
+        
+        const words = text.match(/\b\w{3,}\b/g) || []; // only words with 3+ chars
+        const freqMap = {};
+        
+        words.forEach(word => {
+            if (!stopWords.has(word)) {
+                freqMap[word] = (freqMap[word] || 0) + 1;
+            }
+        });
+        
+        const hotWords = Object.entries(freqMap)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([word]) => word);
+            
+        res.json(hotWords);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // Create a post
 router.post('/', async (req, res) => {
     const { userId, title, content, type, image } = req.body;
